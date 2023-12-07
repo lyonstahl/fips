@@ -1,0 +1,23 @@
+# IDE
+/.idea
+/.vscode
+/.*.meta.*
+
+# Composer
+/vendor/
+
+# Caches
+/*.cache
+
+# Environment
+.env
+.env*local*
+!.env*.example
+
+# Misc
+*.log
+*.out
+
+# Packagist
+/tools/composer
+/composer.lock

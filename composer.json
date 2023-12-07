@@ -1,0 +1,43 @@
+{
+    "type": "library",
+    "license": "Apache-2.0",
+    "name": "lyonstahl/fips",
+    "description": "Convert and operate with FIPS codes for states, counties, etc.",
+    "keywords": [
+        "federal information processing standard",
+        "fips",
+        "county",
+        "state",
+        "zip",
+        "usa",
+        "united states"
+    ],
+    "minimum-stability": "RC",
+    "prefer-stable": true,
+    "require": {
+        "php": ">=7.3"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "LyonStahl\\Fips\\": "src"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests"
+        }
+    },
+    "scripts": {
+        "test": [
+            "phpunit"
+        ]
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true
+    }
+}

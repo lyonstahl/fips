@@ -1,0 +1,56 @@
+#!/usr/bin/env php
+<?php
+
+/*
+ * This script read data from official FIPS list (https://transition.fcc.gov/oet/info/maps/census/fips/fips.txt)
+ * and creates a JSON file with all counties in the United States.
+ *
+ * Please note that the input file should be only the counties, not the states or other info.
+ *
+ * Part of the LyonStahl FIPS package
+ */
+
+$handle = fopen('counties.txt', 'r');
+if (!$handle) {
+    exit('Error opening file');
+}
+
+$counties = [];
+
+// Read each line from the file
+while (($line = fgets($handle)) !== false) {
+    $line = trim($line);
+
+    // Get the state fips from the first 2 characters
+    $state = substr($line, 0, 2);
+
+    // Get the county fips from the last 3 characters
+    $fips = substr($line, 2, 3);
+
+    if ($fips === '000') {
+        continue;
+    }
+
+    $name = trim(substr($line, 6));
+
+    // Get everything before 'County' in the name
+    $pos = strpos($name, ' County');
+    if (!$pos) {
+        $pos = strpos($name, ' city');
+    }
+
+    $name = substr($name, 0, $pos);
+
+    // Add county data to the array
+    $counties[$state][] = [
+        'name' => $name,
+        'fips' => $fips,
+        'abbreviation' => null,
+    ];
+}
+
+fclose($handle);
+
+file_put_contents('counties.json', json_encode($counties));
+
+echo 'Successfully created counties.json file!';
