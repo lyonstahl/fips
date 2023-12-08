@@ -11,15 +11,30 @@ use PHPUnit\Framework\TestCase;
 
 class CountyTest extends TestCase
 {
+    private static $expected = [
+        'name' => 'Los Angeles',
+        'abbreviation' => 'LA',
+        'fips' => '037',
+        'state' => [
+            'name' => 'California',
+            'abbreviation' => 'CA',
+            'fips' => '06',
+            'iso' => 'US-CA',
+            'usps' => 'CA',
+            'uscg' => 'CF',
+        ],
+        'fips5' => '06037',
+    ];
+
     public function testConstructor()
     {
         $county = new County('Test County', 'TC', '01', '06');
 
-        $this->assertEquals('Test County', $county->name);
-        $this->assertEquals('TC', $county->abbreviation);
-        $this->assertEquals('01', $county->fips);
+        static::assertEquals('Test County', $county->name);
+        static::assertEquals('TC', $county->abbreviation);
+        static::assertEquals('01', $county->fips);
 
-        $this->expectException(StateException::class);
+        static::expectException(StateException::class);
         $county = new County('Test County', 'TC', '01', 'State');
     }
 
@@ -27,60 +42,86 @@ class CountyTest extends TestCase
     {
         $counties = County::all();
 
-        $this->assertIsArray($counties);
-        $this->assertNotEmpty($counties);
-        $this->assertContainsOnlyInstancesOf(County::class, $counties);
+        static::assertIsArray($counties);
+        static::assertNotEmpty($counties);
+        static::assertContainsOnlyInstancesOf(County::class, $counties);
+    }
+
+    public function testFindCountyByAny()
+    {
+        $county1 = County::fromAny(static::$expected['fips5']);
+        $county2 = County::fromAny(static::$expected['abbreviation']);
+        $county3 = County::fromAny(static::$expected['name']);
+
+        static::assertCountyValid($county1);
+        static::assertCountyValid($county2);
+        static::assertCountyValid($county3);
+    }
+
+    public function testFindCountyByInvalidAny()
+    {
+        static::expectException(CountyException::class);
+        static::expectExceptionCode(4);
+
+        County::fromAny('Invalid');
     }
 
     public function testFindCountyByName()
     {
-        $county = County::fromName('Los Angeles');
+        $county = County::fromName(static::$expected['name']);
 
-        $this->assertEquals('Los Angeles', $county->name);
-        // $this->assertEquals('LAS', $county->abbreviation);
-        $this->assertEquals('037', $county->fips);
+        static::assertCountyValid($county);
     }
 
-    public function testFindInvalidCountyByName()
+    public function testFindCountyByInvalidName()
     {
-        $this->expectException(CountyException::class);
+        static::expectException(CountyException::class);
+        static::expectExceptionCode(3);
+
         County::fromName('Invalid');
     }
 
     public function testFindCountyByFips()
     {
-        $county = County::fromFips('06037');
+        $county = County::fromFips(static::$expected['fips5']);
 
-        $this->assertEquals('Los Angeles', $county->name);
-        // $this->assertEquals('LAS', $county->abbreviation);
-        $this->assertEquals('037', $county->fips);
+        static::assertCountyValid($county);
     }
 
-    public function testFindInvalidCountyByFips()
+    public function testFindCountyByInvalidFips()
     {
-        $this->expectException(CountyException::class);
+        static::expectException(CountyException::class);
+        static::expectExceptionCode(1);
+
         County::fromFips('99999');
     }
 
     public function testFindCountyByAbbr()
     {
-        $this->markTestIncomplete('Not implemented yet.');
+        $county = County::fromAbbr(static::$expected['abbreviation']);
+
+        static::assertCountyValid($county);
     }
 
-    public function testFindInvalidCountyByAbbr()
+    public function testFindCountyByInvalidAbbr()
     {
-        $this->markTestIncomplete('Not implemented yet.');
+        static::expectException(CountyException::class);
+        static::expectExceptionCode(2);
+
+        County::fromAbbr('XX');
     }
 
-    public function testGetState()
+    /**
+     * Assert that the county is valid.
+     */
+    public static function assertCountyValid(County $county, array $expected = null)
     {
-        $county = County::fromName('Los Angeles');
+        $expected = $expected ?? static::$expected;
 
-        $this->assertEquals('California', $county->state->name);
-        $this->assertEquals('CA', $county->state->abbreviation);
-        $this->assertEquals('06', $county->state->fips);
-        $this->assertEquals('US-CA', $county->state->iso);
-        $this->assertEquals('CA', $county->state->usps);
-        $this->assertEquals('CF', $county->state->uscg);
+        static::assertEquals($expected['name'], $county->name);
+        static::assertEquals($expected['abbreviation'], $county->abbreviation);
+        static::assertEquals($expected['fips'], $county->fips);
+
+        StateTest::assertStateValid($county->state, $expected['state']);
     }
 }

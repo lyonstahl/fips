@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace LyonStahl\Fips;
 
 use LyonStahl\Fips\Exception\CountyException;
-use LyonStahl\Fips\Exception\StateException;
 
 class County
 {
@@ -19,14 +18,10 @@ class County
     /** @var string */
     public $name;
 
-    /**
-     * @var string|null Two-letter abbreviation (if applicable)
-     */
+    /** @var string|null Two-letter abbreviation (if applicable) */
     public $abbreviation;
 
-    /**
-     * @var string Two-digit FIPS code (ANSI)
-     */
+    /** @var string Two(Three)-digit FIPS code (ANSI) */
     public $fips;
 
     /** @var State State object */
@@ -75,12 +70,38 @@ class County
     }
 
     /**
-     * Get a county by FIPS code. (6-digit code, including state code).
+     * Get a county by any identifier. Function will attempt to guess the type of identifier.
      *
-     * @throws StateException
+     * @throws CountyException
+     */
+    public static function fromAny(string $value): self
+    {
+        try {
+            if (self::isFips($value)) {
+                return self::fromFips($value);
+            }
+
+            if (self::isAbbr($value)) {
+                return self::fromAbbr($value);
+            }
+
+            return self::fromName($value);
+        } catch (CountyException $e) {
+            throw CountyException::unableToGuess($e);
+        }
+    }
+
+    /**
+     * Get a county by FIPS code. (5-digit code, including state code).
+     *
+     * @throws CountyException
      */
     public static function fromFips(string $fips): self
     {
+        if (!self::isFips($fips)) {
+            throw CountyException::invalidFipsCode($fips);
+        }
+
         $data = self::read();
 
         // Get the state fips from the first 2 characters
@@ -103,12 +124,17 @@ class County
     /**
      * Get a county by abbreviation.
      *
-     * @throws StateException
+     * @throws CountyException
      */
     public static function fromAbbr(string $abbreviation): self
     {
-        $data = self::read();
+        if (!self::isAbbr($abbreviation)) {
+            throw CountyException::invalidAbbreviation($abbreviation);
+        }
 
+        $abbreviation = strtoupper($abbreviation);
+
+        $data = self::read();
         foreach ($data as $state => $counties) {
             foreach ($counties as $county) {
                 if ($county['abbreviation'] === $abbreviation) {
@@ -123,21 +149,38 @@ class County
     /**
      * Get a county by name.
      *
-     * @throws StateException
+     * @throws CountyException
      */
     public static function fromName(string $name): self
     {
-        $data = self::read();
+        $name = strtolower(trim($name));
 
+        $data = self::read();
         foreach ($data as $state => $counties) {
             foreach ($counties as $county) {
-                if ($county['name'] === $name) {
+                if (strtolower($county['name']) === $name) {
                     return new static($county['name'], $county['abbreviation'], $county['fips'], $state);
                 }
             }
         }
 
         throw CountyException::invalidName($name);
+    }
+
+    /**
+     * Check if a value is a valid FIPS county code.
+     */
+    private static function isFips(string $value): bool
+    {
+        return strlen($value) === 5 && is_numeric($value);
+    }
+
+    /**
+     * Check if a value is a valid county abbreviation.
+     */
+    private static function isAbbr(string $value): bool
+    {
+        return (strlen($value) === 2 || strlen($value) === 3) && ctype_alpha($value);
     }
 
     public function __toString(): string
