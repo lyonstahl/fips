@@ -15,7 +15,7 @@ That will fetch the library and its dependencies inside your vendor folder.
 
 ## Usage
 
-Creating a new Api client and connecting:
+Start using either the `State` or `County` class to get the data you need.
 
 ```php
 $state = State::fromName('California');
@@ -31,6 +31,18 @@ $county = County::fromFips('06037');
 echo $county->name; // Los Angeles
 echo $county->getState()->name; // California
 ```
+
+Both classes have four common static methods:
+
+-   `fromAny((string $value)` - Get a State or County object from any identifier. Function will attempt to guess the type of identifier.
+-   `fromName(string $name)` - Get the State or County object from its name.
+-   `fromAbbr(string $abbreviation)` - Get the State object from its abbreviation.
+-   `fromFips(string $fips)` - Get the County object from its FIPS code.
+
+Finally, both classes are connected, meaning you can get the State object from a County object and vice versa.
+
+-   `State::` `getCounties()` - This will fetch all the counties for the state.
+-   `County::` `$state` - State object is available as a property.
 
 ## Running for development with Docker
 
