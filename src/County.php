@@ -15,6 +15,12 @@ class County
      */
     private static $source = __DIR__.'/../data/counties.json';
 
+    /** @var array<string,array<int,array<string,string|null>>>|null */
+    private static $data;
+
+    /** @var array<string,array<string,string>>|null */
+    private static $indexes;
+
     /** @var string */
     public $name;
 
@@ -47,7 +53,11 @@ class County
      */
     public static function read(): array
     {
-        return json_decode(file_get_contents(self::$source), true);
+        if (self::$data === null) {
+            self::$data = json_decode(file_get_contents(self::$source), true);
+        }
+
+        return self::$data;
     }
 
     /**
@@ -102,19 +112,15 @@ class County
             throw CountyException::invalidFipsCode($fips);
         }
 
-        $data = self::read();
-
         // Get the state fips from the first 2 characters
         $stateFips = substr($fips, 0, 2);
 
         // Get the county fips from the last 3 characters
         $countyFips = substr($fips, 2, 3);
 
-        foreach ($data as $state => $counties) {
-            foreach ($counties as $county) {
-                if ($county['fips'] === $countyFips && $stateFips === $state) {
-                    return new static($county['name'], $county['abbreviation'], $county['fips'], $state);
-                }
+        foreach (self::read()[$stateFips] ?? [] as $county) {
+            if ($county['fips'] === $countyFips) {
+                return new static($county['name'], $county['abbreviation'], $county['fips'], $stateFips);
             }
         }
 
@@ -134,13 +140,9 @@ class County
 
         $abbreviation = strtoupper($abbreviation);
 
-        $data = self::read();
-        foreach ($data as $state => $counties) {
-            foreach ($counties as $county) {
-                if ($county['abbreviation'] === $abbreviation) {
-                    return new static($county['name'], $county['abbreviation'], $county['fips'], $state);
-                }
-            }
+        $fips = self::indexes()['abbreviation'][$abbreviation] ?? null;
+        if ($fips !== null) {
+            return self::fromFips($fips);
         }
 
         throw CountyException::invalidAbbreviation($abbreviation);
@@ -155,13 +157,9 @@ class County
     {
         $name = strtolower(trim($name));
 
-        $data = self::read();
-        foreach ($data as $state => $counties) {
-            foreach ($counties as $county) {
-                if (strtolower($county['name']) === $name) {
-                    return new static($county['name'], $county['abbreviation'], $county['fips'], $state);
-                }
-            }
+        $fips = self::indexes()['name'][$name] ?? null;
+        if ($fips !== null) {
+            return self::fromFips($fips);
         }
 
         throw CountyException::invalidName($name);
@@ -181,6 +179,37 @@ class County
     private static function isAbbr(string $value): bool
     {
         return (strlen($value) === 2 || strlen($value) === 3) && ctype_alpha($value);
+    }
+
+    /**
+     * Build lookup indexes while preserving the first match for duplicate names.
+     *
+     * @return array<string,array<string,string>>
+     */
+    private static function indexes(): array
+    {
+        if (self::$indexes !== null) {
+            return self::$indexes;
+        }
+
+        self::$indexes = ['name' => [], 'abbreviation' => []];
+        foreach (self::read() as $state => $counties) {
+            $stateFips = str_pad((string) $state, 2, '0', STR_PAD_LEFT);
+            foreach ($counties as $county) {
+                $fips = $stateFips.$county['fips'];
+                $name = strtolower($county['name']);
+
+                if (!isset(self::$indexes['name'][$name])) {
+                    self::$indexes['name'][$name] = $fips;
+                }
+
+                if ($county['abbreviation'] !== null) {
+                    self::$indexes['abbreviation'][$county['abbreviation']] = $fips;
+                }
+            }
+        }
+
+        return self::$indexes;
     }
 
     public function __toString(): string

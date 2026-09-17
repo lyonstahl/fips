@@ -1,56 +1,139 @@
 #!/usr/bin/env php
 <?php
 
-/*
- * This script read data from official FIPS list (https://transition.fcc.gov/oet/info/maps/census/fips/fips.txt)
- * and creates a JSON file with all counties in the United States.
- *
- * Please note that the input file should be only the counties, not the states or other info.
- *
- * Part of the LyonStahl FIPS package
- */
+declare(strict_types=1);
 
-$handle = fopen('counties.txt', 'r');
-if (!$handle) {
-    exit('Error opening file');
+require_once __DIR__.'/../vendor/autoload.php';
+
+use LyonStahl\Fips\State;
+
+if (!class_exists(ZipArchive::class)) {
+    fwrite(STDERR, "The ZipArchive extension is required.\n");
+    exit(1);
 }
 
-$counties = [];
+$year = $argv[1] ?? '2026';
+if (!preg_match('/^\d{4}$/', $year)) {
+    fwrite(STDERR, "Usage: php tools/county-parser [year]\n");
+    exit(1);
+}
 
-// Read each line from the file
-while (($line = fgets($handle)) !== false) {
-    $line = trim($line);
+$url = sprintf(
+    'https://www2.census.gov/geo/docs/maps-data/data/gazetteer/%1$s_Gazetteer/%1$s_Gaz_counties_national.zip',
+    $year
+);
+$archive = tempnam(sys_get_temp_dir(), 'fips-');
+$download = @file_get_contents($url);
 
-    // Get the state fips from the first 2 characters
-    $state = substr($line, 0, 2);
+if ($archive === false || $download === false || file_put_contents($archive, $download) === false) {
+    if ($archive !== false) {
+        @unlink($archive);
+    }
 
-    // Get the county fips from the last 3 characters
-    $fips = substr($line, 2, 3);
+    fwrite(STDERR, "Unable to download $url\n");
+    exit(1);
+}
 
-    if ($fips === '000') {
+$zip = new ZipArchive();
+if ($zip->open($archive) !== true) {
+    @unlink($archive);
+    fwrite(STDERR, "Unable to open the downloaded Census archive.\n");
+    exit(1);
+}
+
+$contents = $zip->getFromName($year.'_Gaz_counties_national.txt');
+$zip->close();
+@unlink($archive);
+
+if ($contents === false) {
+    fwrite(STDERR, "The Census archive does not contain the expected county file.\n");
+    exit(1);
+}
+
+$stateFips = array_column(State::read(), 'fips');
+$allowedStates = array_fill_keys($stateFips, true);
+$abbreviations = [];
+$target = __DIR__.'/../data/counties.json';
+$current = json_decode((string) file_get_contents($target), true);
+
+foreach ($current as $state => $counties) {
+    $state = str_pad((string) $state, 2, '0', STR_PAD_LEFT);
+    foreach ($counties as $county) {
+        if ($county['abbreviation'] !== null) {
+            $abbreviations[$state.$county['fips']] = $county['abbreviation'];
+        }
+    }
+}
+
+$stream = fopen('php://temp', 'r+');
+fwrite($stream, $contents);
+rewind($stream);
+
+$header = fgetcsv($stream, 0, '|', '"', '\\');
+if ($header === false) {
+    fwrite(STDERR, "The Census county file is empty.\n");
+    exit(1);
+}
+
+$columns = array_flip($header);
+if (!isset($columns['GEOID'], $columns['NAME'])) {
+    fwrite(STDERR, "The Census file is missing GEOID or NAME.\n");
+    exit(1);
+}
+
+$result = [];
+$seen = [];
+while (($row = fgetcsv($stream, 0, '|', '"', '\\')) !== false) {
+    $fips = $row[$columns['GEOID']] ?? '';
+    $officialName = $row[$columns['NAME']] ?? '';
+    $state = substr($fips, 0, 2);
+
+    if (!isset($allowedStates[$state])) {
         continue;
     }
 
-    $name = trim(substr($line, 6));
-
-    // Get everything before 'County' in the name
-    $pos = strpos($name, ' County');
-    if (!$pos) {
-        $pos = strpos($name, ' city');
+    if (!preg_match('/^\d{5}$/', $fips) || isset($seen[$fips])) {
+        fwrite(STDERR, "Invalid or duplicate county FIPS code: $fips\n");
+        exit(1);
     }
 
-    $name = substr($name, 0, $pos);
+    if ($officialName === 'District of Columbia' || $officialName === 'Carson City') {
+        $name = $officialName;
+    } else {
+        $name = preg_replace(
+            '/ (City and Borough|Planning Region|Census Area|Municipality|County|Parish|Borough|city)$/',
+            '',
+            $officialName,
+            -1,
+            $suffixes
+        );
 
-    // Add county data to the array
-    $counties[$state][] = [
+        if ($suffixes !== 1 || $name === '') {
+            fwrite(STDERR, "Unrecognized county name: $officialName\n");
+            exit(1);
+        }
+    }
+
+    $seen[$fips] = true;
+    $result[$state][] = [
         'name' => $name,
-        'fips' => $fips,
-        'abbreviation' => null,
+        'fips' => substr($fips, 2),
+        'abbreviation' => $abbreviations[$fips] ?? null,
     ];
 }
+fclose($stream);
 
-fclose($handle);
+foreach ($stateFips as $state) {
+    if (empty($result[$state])) {
+        fwrite(STDERR, "No counties found for state FIPS code: $state\n");
+        exit(1);
+    }
+}
 
-file_put_contents('counties.json', json_encode($counties));
+$json = json_encode($result);
+if ($json === false || file_put_contents($target, $json, LOCK_EX) === false) {
+    fwrite(STDERR, "Unable to write the generated county data.\n");
+    exit(1);
+}
 
-echo 'Successfully created counties.json file!';
+echo sprintf("Generated %d counties from the %s Census Gazetteer.\n", count($seen), $year);

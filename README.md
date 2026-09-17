@@ -29,7 +29,7 @@ echo $counties[0]->name; // Alameda
 ```php
 $county = County::fromFips('06037');
 echo $county->name; // Los Angeles
-echo $county->getState()->name; // California
+echo $county->state->name; // California
 ```
 
 Both classes have four common static methods:
@@ -76,3 +76,11 @@ Docker image is configured with XDebug. To debug the code with VSCode, follow th
 This library ships with PHPUnit for development. Composer file has been configured with some scripts, run the following command to run the tests:
 
     composer test
+
+## Updating county data
+
+County data is generated from the annual [U.S. Census Gazetteer Files](https://www.census.gov/geographies/reference-files/time-series/geo/gazetteer-files.html). The development machine must have PHP's `zip` extension enabled.
+
+    php tools/county-parser 2026
+
+The year defaults to `2026` when omitted. Generation preserves the package's short county names and existing California county abbreviations.

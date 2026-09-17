@@ -88,6 +88,64 @@ class CountyTest extends TestCase
         static::assertCountyValid($county);
     }
 
+    /**
+     * @dataProvider countyFipsProvider
+     */
+    public function testFindCountyByFipsAcrossStates(string $fips, string $name, string $stateFips)
+    {
+        $county = County::fromFips($fips);
+
+        static::assertSame($name, $county->name);
+        static::assertSame($stateFips, $county->state->fips);
+    }
+
+    public static function countyFipsProvider(): array
+    {
+        return [
+            'Alaska municipality' => ['02020', 'Anchorage', '02'],
+            'Connecticut planning region' => ['09110', 'Capitol', '09'],
+            'District of Columbia' => ['11001', 'District of Columbia', '11'],
+            'Louisiana parish' => ['22071', 'Orleans', '22'],
+            'Virginia independent city' => ['51510', 'Alexandria', '51'],
+            'West Virginia county' => ['54031', 'Hardy', '54'],
+        ];
+    }
+
+    public function testFindCountyByFipsForEveryState()
+    {
+        foreach (County::read() as $state => $counties) {
+            $state = str_pad((string) $state, 2, '0', STR_PAD_LEFT);
+            $county = County::fromFips($state.$counties[0]['fips']);
+
+            static::assertSame($state, $county->state->fips);
+            static::assertSame($counties[0]['name'], $county->name);
+        }
+    }
+
+    public function testCountyDataIsValid()
+    {
+        $seen = [];
+
+        foreach (County::read() as $state => $counties) {
+            $state = str_pad((string) $state, 2, '0', STR_PAD_LEFT);
+            foreach ($counties as $county) {
+                $fips = $state.$county['fips'];
+
+                static::assertMatchesRegularExpression('/^\d{5}$/', $fips);
+                static::assertNotSame('', trim($county['name']));
+                static::assertArrayNotHasKey($fips, $seen);
+                $seen[$fips] = true;
+            }
+        }
+    }
+
+    public function testRetiredCountyFipsIsInvalid()
+    {
+        static::expectException(CountyException::class);
+
+        County::fromFips('09001');
+    }
+
     public function testFindCountyByInvalidFips()
     {
         static::expectException(CountyException::class);
@@ -114,7 +172,7 @@ class CountyTest extends TestCase
     /**
      * Assert that the county is valid.
      */
-    public static function assertCountyValid(County $county, array $expected = null)
+    public static function assertCountyValid(County $county, ?array $expected = null)
     {
         $expected = $expected ?? static::$expected;
 

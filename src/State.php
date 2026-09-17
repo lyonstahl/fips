@@ -13,6 +13,12 @@ class State
      */
     private static $source = __DIR__.'/../data/states.php';
 
+    /** @var array<int,array<string,string>>|null */
+    private static $data;
+
+    /** @var array<string,array<string,array<string,string>>>|null */
+    private static $indexes;
+
     /** @var string */
     public $name;
 
@@ -48,7 +54,11 @@ class State
      */
     public static function read(): array
     {
-        return include self::$source;
+        if (self::$data === null) {
+            self::$data = include self::$source;
+        }
+
+        return self::$data;
     }
 
     /**
@@ -110,10 +120,9 @@ class State
             throw StateException::invalidFipsCode($fips);
         }
 
-        foreach (self::read() as $state) {
-            if ($state['fips'] === $fips) {
-                return self::fromArray($state);
-            }
+        $state = self::indexes()['fips'][$fips] ?? null;
+        if ($state !== null) {
+            return self::fromArray($state);
         }
 
         throw StateException::invalidFipsCode($fips);
@@ -132,10 +141,9 @@ class State
 
         $abbreviation = strtoupper($abbreviation);
 
-        foreach (self::read() as $state) {
-            if ($state['abbreviation'] === $abbreviation) {
-                return self::fromArray($state);
-            }
+        $state = self::indexes()['abbreviation'][$abbreviation] ?? null;
+        if ($state !== null) {
+            return self::fromArray($state);
         }
 
         throw StateException::invalidAbbreviation($abbreviation);
@@ -150,10 +158,9 @@ class State
     {
         $name = strtolower(trim($name));
 
-        foreach (self::read() as $state) {
-            if ($name === strtolower($state['name'])) {
-                return self::fromArray($state);
-            }
+        $state = self::indexes()['name'][$name] ?? null;
+        if ($state !== null) {
+            return self::fromArray($state);
         }
 
         throw StateException::invalidName($name);
@@ -190,6 +197,23 @@ class State
     private static function isAbbr(string $value): bool
     {
         return strlen($value) === 2 && ctype_alpha($value);
+    }
+
+    /** @return array<string,array<string,array<string,string>>> */
+    private static function indexes(): array
+    {
+        if (self::$indexes !== null) {
+            return self::$indexes;
+        }
+
+        self::$indexes = ['fips' => [], 'name' => [], 'abbreviation' => []];
+        foreach (self::read() as $state) {
+            self::$indexes['fips'][$state['fips']] = $state;
+            self::$indexes['name'][strtolower($state['name'])] = $state;
+            self::$indexes['abbreviation'][$state['abbreviation']] = $state;
+        }
+
+        return self::$indexes;
     }
 
     public function __toString(): string

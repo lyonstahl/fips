@@ -122,10 +122,25 @@ class StateTest extends TestCase
         static::assertCount(58, $state->getCounties());
     }
 
+    public function testFindStateAcrossIndexes()
+    {
+        static::assertSame('West Virginia', State::fromFips('54')->name);
+        static::assertSame('54', State::fromName('West Virginia')->fips);
+        static::assertSame('54', State::fromAbbr('wv')->fips);
+    }
+
+    public function testGetCountiesOutsideSingleDigitState()
+    {
+        $counties = State::fromFips('54')->getCounties();
+
+        static::assertContains('Hardy', array_column($counties, 'name'));
+        static::assertSame('54', $counties[0]->state->fips);
+    }
+
     /**
      * Assert that the state is valid.
      */
-    public static function assertStateValid(State $state, array $expected = null)
+    public static function assertStateValid(State $state, ?array $expected = null)
     {
         $expected = $expected ?? static::$expected;
 
