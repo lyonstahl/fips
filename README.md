@@ -14,6 +14,7 @@ Version 2 requires PHP 7.3+ with `ctype`, `json`, and `mbstring`.
 
 | Package version | Year | Dataset |
 | --- | ---: | --- |
+| 2.2.0 | 2026 | Census Gazetteer |
 | 2.1.0 | 2025 | Census Gazetteer |
 | 2.0.0 | 2024 | Census Gazetteer |
 | 1.1.1 | 2023 | Legacy package data; not Census-backed |
