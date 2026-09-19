@@ -1,13 +1,13 @@
 {
-    "vintage": "2024",
-    "generatedAt": "2026-09-19T16:49:41+00:00",
+    "vintage": "2025",
+    "generatedAt": "2026-09-19T17:06:57+00:00",
     "sources": {
-        "states": "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2024_Gazetteer/2024_Gaz_state_national.zip",
-        "counties": "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2024_Gazetteer/2024_Gaz_counties_national.zip"
+        "states": "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2025_Gazetteer/2025_Gaz_state_national.zip",
+        "counties": "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2025_Gazetteer/2025_Gaz_counties_national.zip"
     },
     "sourceChecksums": {
-        "states": "608678c4b1aee5bd7577d7ee8754763af5b9c662d44cef23f30fead56d9284ae",
-        "counties": "3c337402b5c6e8d5aa26b4278ccf4edc8989f2683765b3ffbf22296cdb2df3a0"
+        "states": "5c0bb56f4824af366538d73bffd229e790d301356624302eeca24d09cf27ba30",
+        "counties": "4c90d0f805779923b5958ab13d0c1e9b99fe4932b786bfcf75dd739bb2dcb4ea"
     },
     "dataChecksums": {
         "states": "470c92542a85911d9dc0372ba2b7901951654a869162ed884864ea06691f131c",
