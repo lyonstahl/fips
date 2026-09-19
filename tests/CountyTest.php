@@ -4,182 +4,164 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use LogicException;
 use LyonStahl\Fips\County;
-use LyonStahl\Fips\Exception\CountyException;
-use LyonStahl\Fips\Exception\StateException;
+use LyonStahl\Fips\Dataset;
+use LyonStahl\Fips\Exception\AmbiguousMatchException;
+use LyonStahl\Fips\Exception\InvalidIdentifierException;
+use LyonStahl\Fips\Exception\NotFoundException;
+use LyonStahl\Fips\State;
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 
-class CountyTest extends TestCase
+final class CountyTest extends TestCase
 {
-    private static $expected = [
-        'name' => 'Los Angeles',
-        'abbreviation' => 'LA',
-        'fips' => '037',
-        'state' => [
-            'name' => 'California',
-            'abbreviation' => 'CA',
-            'fips' => '06',
-            'iso' => 'US-CA',
-            'usps' => 'CA',
-            'uscg' => 'CF',
-        ],
-        'fips5' => '06037',
-    ];
-
-    public function testConstructor()
+    public function testFipsLookupExposesExplicitCodeParts(): void
     {
-        $county = new County('Test County', 'TC', '01', '06');
+        $county = County::fromFips('06037');
 
-        static::assertEquals('Test County', $county->name);
-        static::assertEquals('TC', $county->abbreviation);
-        static::assertEquals('01', $county->fips);
-
-        static::expectException(StateException::class);
-        $county = new County('Test County', 'TC', '01', 'State');
-    }
-
-    public function testAll()
-    {
-        $counties = County::all();
-
-        static::assertIsArray($counties);
-        static::assertNotEmpty($counties);
-        static::assertContainsOnlyInstancesOf(County::class, $counties);
-    }
-
-    public function testFindCountyByAny()
-    {
-        $county1 = County::fromAny(static::$expected['fips5']);
-        $county2 = County::fromAny(static::$expected['abbreviation']);
-        $county3 = County::fromAny(static::$expected['name']);
-
-        static::assertCountyValid($county1);
-        static::assertCountyValid($county2);
-        static::assertCountyValid($county3);
-    }
-
-    public function testFindCountyByInvalidAny()
-    {
-        static::expectException(CountyException::class);
-        static::expectExceptionCode(4);
-
-        County::fromAny('Invalid');
-    }
-
-    public function testFindCountyByName()
-    {
-        $county = County::fromName(static::$expected['name']);
-
-        static::assertCountyValid($county);
-    }
-
-    public function testFindCountyByInvalidName()
-    {
-        static::expectException(CountyException::class);
-        static::expectExceptionCode(3);
-
-        County::fromName('Invalid');
-    }
-
-    public function testFindCountyByFips()
-    {
-        $county = County::fromFips(static::$expected['fips5']);
-
-        static::assertCountyValid($county);
+        self::assertSame('Los Angeles', $county->name);
+        self::assertSame('Los Angeles County', $county->officialName);
+        self::assertSame(County::TYPE_COUNTY, $county->type);
+        self::assertSame('00277283', $county->ansiCode);
+        self::assertSame('06037', $county->fips);
+        self::assertSame('06', $county->stateFips);
+        self::assertSame('037', $county->countyFips);
+        self::assertSame('California', $county->state->name);
     }
 
     /**
-     * @dataProvider countyFipsProvider
+     * @dataProvider countyTypeProvider
      */
-    public function testFindCountyByFipsAcrossStates(string $fips, string $name, string $stateFips)
+    public function testCountyEquivalentTypes(string $fips, string $officialName, string $type): void
     {
         $county = County::fromFips($fips);
 
-        static::assertSame($name, $county->name);
-        static::assertSame($stateFips, $county->state->fips);
+        self::assertSame($officialName, $county->officialName);
+        self::assertSame($type, $county->type);
     }
 
-    public static function countyFipsProvider(): array
+    public static function countyTypeProvider(): array
     {
         return [
-            'Alaska municipality' => ['02020', 'Anchorage', '02'],
-            'Connecticut planning region' => ['09110', 'Capitol', '09'],
-            'District of Columbia' => ['11001', 'District of Columbia', '11'],
-            'Louisiana parish' => ['22071', 'Orleans', '22'],
-            'Virginia independent city' => ['51510', 'Alexandria', '51'],
-            'West Virginia county' => ['54031', 'Hardy', '54'],
+            'Alaska municipality' => ['02020', 'Anchorage Municipality', County::TYPE_MUNICIPALITY],
+            'Louisiana parish' => ['22071', 'Orleans Parish', County::TYPE_PARISH],
+            'Connecticut planning region' => ['09110', 'Capitol Planning Region', County::TYPE_PLANNING_REGION],
+            'District of Columbia' => ['11001', 'District of Columbia', County::TYPE_DISTRICT],
+            'Virginia independent city' => ['51510', 'Alexandria city', County::TYPE_INDEPENDENT_CITY],
+            'Puerto Rico municipio' => ['72001', 'Adjuntas Municipio', County::TYPE_MUNICIPIO],
+            'Nevada consolidated municipality' => ['32510', 'Carson City', County::TYPE_CONSOLIDATED_MUNICIPALITY],
         ];
     }
 
-    public function testFindCountyByFipsForEveryState()
+    public function testGlobalDuplicateNameThrowsWithCandidates(): void
     {
-        foreach (County::read() as $state => $counties) {
-            $state = str_pad((string) $state, 2, '0', STR_PAD_LEFT);
-            $county = County::fromFips($state.$counties[0]['fips']);
-
-            static::assertSame($state, $county->state->fips);
-            static::assertSame($counties[0]['name'], $county->name);
+        try {
+            County::fromName('Franklin');
+            self::fail('Ambiguous county name was accepted.');
+        } catch (AmbiguousMatchException $exception) {
+            self::assertGreaterThan(10, count($exception->candidates()));
+            self::assertContainsOnlyInstancesOf(County::class, $exception->candidates());
         }
     }
 
-    public function testCountyDataIsValid()
+    public function testNameCanBeScopedByAnyStateIdentifier(): void
     {
-        $seen = [];
+        self::assertSame('51067', County::fromName('Franklin County', 'VA')->fips);
+        self::assertSame('51067', County::fromName('Franklin County', '51')->fips);
+        self::assertSame('51067', County::fromName('Franklin County', 'Virginia')->fips);
+        self::assertSame('51067', County::fromName('Franklin County', State::fromAbbr('VA'))->fips);
+    }
 
-        foreach (County::read() as $state => $counties) {
-            $state = str_pad((string) $state, 2, '0', STR_PAD_LEFT);
-            foreach ($counties as $county) {
-                $fips = $state.$county['fips'];
+    public function testOfficialNamesResolveSameStateShortNameCollision(): void
+    {
+        self::assertCount(2, County::findByName('Baltimore', 'MD'));
+        self::assertSame('24005', County::fromName('Baltimore County', 'MD')->fips);
+        self::assertSame('24510', County::fromName('Baltimore city', 'MD')->fips);
 
-                static::assertMatchesRegularExpression('/^\d{5}$/', $fips);
-                static::assertNotSame('', trim($county['name']));
-                static::assertArrayNotHasKey($fips, $seen);
-                $seen[$fips] = true;
-            }
+        $this->expectException(AmbiguousMatchException::class);
+        County::fromName('Baltimore', 'MD');
+    }
+
+    public function testFromAnySearchesNamesAndCodesWithoutPrecedence(): void
+    {
+        self::assertSame('06037', County::fromAny('06037')->fips);
+        self::assertSame('51067', County::fromAny('067', 'VA')->fips);
+        self::assertSame('19161', County::fromAny('Sac')->fips);
+        self::assertSame('16001', County::fromAny('Ada')->fips);
+
+        $this->expectException(AmbiguousMatchException::class);
+        County::fromAny('Lee');
+    }
+
+    public function testUnicodeCaseWhitespaceAndOfficialSuffixesAreNormalized(): void
+    {
+        self::assertSame('35013', County::fromName('  DOÑA   ANA COUNTY  ')->fips);
+        self::assertSame('72021', County::fromName('BAYAMÓN MUNICIPIO')->fips);
+    }
+
+    public function testNullableLookupsPreserveAmbiguity(): void
+    {
+        self::assertNull(County::tryFromFips('6037'));
+        self::assertNull(County::tryFromFips('99999'));
+        self::assertNull(County::tryFromName('Missing County'));
+
+        $this->expectException(AmbiguousMatchException::class);
+        County::tryFromName('Washington');
+    }
+
+    public function testMalformedAndUnknownFipsAreDistinct(): void
+    {
+        try {
+            County::fromFips('6037');
+            self::fail('Malformed FIPS code was accepted.');
+        } catch (InvalidIdentifierException $exception) {
+            self::assertStringContainsString('exactly 5 digits', $exception->getMessage());
         }
-    }
 
-    public function testRetiredCountyFipsIsInvalid()
-    {
-        static::expectException(CountyException::class);
-
-        County::fromFips('09001');
-    }
-
-    public function testFindCountyByInvalidFips()
-    {
-        static::expectException(CountyException::class);
-        static::expectExceptionCode(1);
-
+        $this->expectException(NotFoundException::class);
         County::fromFips('99999');
     }
 
-    public function testFindCountyByAbbr()
+    public function testInvalidStateScopeIsRejected(): void
     {
-        $county = County::fromAbbr(static::$expected['abbreviation']);
-
-        static::assertCountyValid($county);
+        $this->expectException(InvalidIdentifierException::class);
+        County::fromName('Franklin', 51);
     }
 
-    public function testFindCountyByInvalidAbbr()
+    public function testAllRecordsRoundTripInFipsOrder(): void
     {
-        static::expectException(CountyException::class);
-        static::expectExceptionCode(2);
+        $counties = County::all();
 
-        County::fromAbbr('XX');
+        self::assertCount(Dataset::countyCount(), $counties);
+        self::assertSame('01001', $counties[0]->fips);
+        self::assertSame('72153', $counties[count($counties) - 1]->fips);
+
+        foreach ($counties as $county) {
+            self::assertSame($county, County::fromFips($county->fips));
+            self::assertSame($county->fips, $county->stateFips . $county->countyFips);
+            self::assertSame($county->stateFips, $county->state->fips);
+        }
     }
 
-    /**
-     * Assert that the county is valid.
-     */
-    public static function assertCountyValid(County $county, ?array $expected = null)
+    public function testSerializationContainsNestedState(): void
     {
-        $expected = $expected ?? static::$expected;
+        $county = County::fromFips('06037');
+        $data = $county->toArray();
 
-        static::assertEquals($expected['name'], $county->name);
-        static::assertEquals($expected['abbreviation'], $county->abbreviation);
-        static::assertEquals($expected['fips'], $county->fips);
+        self::assertSame('06037', $data['fips']);
+        self::assertSame('California', $data['state']['name']);
+        self::assertSame($data, json_decode(json_encode($county), true));
+    }
 
-        StateTest::assertStateValid($county->state, $expected['state']);
+    public function testObjectsCannotBeConstructedOrMutatedByCallers(): void
+    {
+        $constructor = (new ReflectionClass(County::class))->getConstructor();
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $county = County::fromFips('06037');
+        $this->expectException(LogicException::class);
+        $county->name = 'Changed';
     }
 }

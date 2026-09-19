@@ -1,0 +1,85 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use LyonStahl\Fips\Tools\DatasetGenerator;
+
+require_once __DIR__.'/../vendor/autoload.php';
+
+if (!class_exists(ZipArchive::class)) {
+    fwrite(STDERR, "The ZipArchive extension is required.\n");
+    exit(1);
+}
+
+$year = null;
+$statePath = null;
+$countyPath = null;
+
+foreach (array_slice($argv, 1) as $argument) {
+    if (strpos($argument, '--states=') === 0) {
+        $statePath = substr($argument, strlen('--states='));
+    } elseif (strpos($argument, '--counties=') === 0) {
+        $countyPath = substr($argument, strlen('--counties='));
+    } elseif ($year === null) {
+        $year = $argument;
+    } else {
+        fwrite(STDERR, "Usage: php tools/generate-data YEAR [--states=archive.zip] [--counties=archive.zip]\n");
+        exit(1);
+    }
+}
+
+if ($year === null || !preg_match('/^\d{4}$/D', $year)) {
+    fwrite(STDERR, "Usage: php tools/generate-data YEAR [--states=archive.zip] [--counties=archive.zip]\n");
+    exit(1);
+}
+
+try {
+    $stateArchive = $statePath === null
+        ? downloadArchive(DatasetGenerator::stateUrl($year))
+        : readArchive($statePath);
+    $countyArchive = $countyPath === null
+        ? downloadArchive(DatasetGenerator::countyUrl($year))
+        : readArchive($countyPath);
+
+    $metadata = (new DatasetGenerator())->generate(
+        $year,
+        $stateArchive,
+        $countyArchive,
+        __DIR__.'/../data'
+    );
+
+    echo sprintf(
+        "Generated %d states and %d counties from the %s Census Gazetteer.\n",
+        $metadata['stateCount'],
+        $metadata['countyCount'],
+        $metadata['vintage']
+    );
+} catch (Throwable $exception) {
+    fwrite(STDERR, $exception->getMessage()."\n");
+    exit(1);
+}
+
+function readArchive(string $path): string
+{
+    $contents = @file_get_contents($path);
+    if ($contents === false || $contents === '') {
+        throw new RuntimeException(sprintf('Unable to read archive: %s', $path));
+    }
+
+    return $contents;
+}
+
+function downloadArchive(string $url): string
+{
+    $context = stream_context_create(['http' => [
+        'timeout' => 30,
+        'user_agent' => 'lyonstahl/fips dataset generator',
+    ]]);
+    $contents = @file_get_contents($url, false, $context);
+    if ($contents === false || $contents === '') {
+        throw new RuntimeException(sprintf('Unable to download %s.', $url));
+    }
+
+    return $contents;
+}

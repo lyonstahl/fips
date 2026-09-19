@@ -1,0 +1,140 @@
+name: Refresh Census data and release
+
+on:
+  schedule:
+    - cron: '17 7 1 * *'
+  workflow_dispatch:
+    inputs:
+      year:
+        description: Census Gazetteer vintage
+        required: true
+        type: string
+      version:
+        description: Package version without a v prefix
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency: census-data-release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Plan release
+        id: plan
+        shell: bash
+        env:
+          REQUESTED_YEAR: ${{ inputs.year }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            current_year=$(grep -m1 '"vintage"' data/metadata.json | grep -oE '[0-9]{4}')
+            year=$((10#$current_year + 1))
+          else
+            year=$REQUESTED_YEAR
+            version=$REQUESTED_VERSION
+            [[ "$year" =~ ^[0-9]{4}$ ]] || { echo "Year must contain four digits."; exit 1; }
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Version must use MAJOR.MINOR.PATCH."; exit 1; }
+          fi
+
+          base_url="https://www2.census.gov/geo/docs/maps-data/data/gazetteer/${year}_Gazetteer"
+          state_url="$base_url/${year}_Gaz_state_national.zip"
+          county_url="$base_url/${year}_Gaz_counties_national.zip"
+          if ! curl --fail --silent --show-error --location --output "$RUNNER_TEMP/states.zip" "$state_url" \
+            || ! curl --fail --silent --show-error --location --output "$RUNNER_TEMP/counties.zip" "$county_url"; then
+            if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+              echo "Census $year archives are not available; no release needed."
+              exit 0
+            fi
+            exit 1
+          fi
+
+          state_checksum=$(sha256sum "$RUNNER_TEMP/states.zip" | cut -d' ' -f1)
+          county_checksum=$(sha256sum "$RUNNER_TEMP/counties.zip" | cut -d' ' -f1)
+          if grep -Fq "$state_checksum" data/metadata.json && grep -Fq "$county_checksum" data/metadata.json; then
+            echo "Census $year archives match the packaged sources; no release needed."
+            exit 0
+          fi
+
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            latest=$(git tag --list '[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+            [[ "$latest" =~ ^([0-9]+)\.([0-9]+)\.[0-9]+$ ]] || { echo "No semantic-version tag found."; exit 1; }
+            version="${BASH_REMATCH[1]}.$((BASH_REMATCH[2] + 1)).0"
+          fi
+
+          ! git show-ref --verify --quiet "refs/tags/$version" || { echo "Tag $version already exists."; exit 1; }
+          ! grep -Fq "| $version |" README.md || { echo "Version $version is already documented."; exit 1; }
+          echo "YEAR=$year" >> "$GITHUB_ENV"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "release=true" >> "$GITHUB_OUTPUT"
+
+      - uses: shivammathur/setup-php@v2
+        if: steps.plan.outputs.release == 'true'
+        with:
+          php-version: '8.5'
+          extensions: ctype, json, mbstring, zip
+          coverage: none
+
+      - if: steps.plan.outputs.release == 'true'
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Generate Census data
+        if: steps.plan.outputs.release == 'true'
+        run: php tools/generate-data "$YEAR" --states="$RUNNER_TEMP/states.zip" --counties="$RUNNER_TEMP/counties.zip"
+
+      - name: Update version map
+        if: steps.plan.outputs.release == 'true'
+        run: |
+          sed -i "/| --- | ---: | --- |/a | $VERSION | $YEAR | Census Gazetteer |" README.md
+
+      - name: Verify package
+        if: steps.plan.outputs.release == 'true'
+        run: |
+          composer validate --strict
+          composer audit --no-interaction
+          composer check
+
+      - name: Commit and tag
+        if: steps.plan.outputs.release == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md data/counties.json data/metadata.json data/states.json
+          git diff --cached --quiet && { echo "The generated release contains no changes."; exit 1; }
+          git commit -m "Update Census data to $YEAR"
+          git tag -a "$VERSION" -m "$VERSION"
+          git push --atomic origin "HEAD:$DEFAULT_BRANCH" "refs/tags/$VERSION"
+
+      - name: Create release notes
+        if: steps.plan.outputs.release == 'true'
+        shell: bash
+        run: |
+          STATE_COUNT=$(php -r '$m=json_decode(file_get_contents("data/metadata.json"),true); echo $m["stateCount"];')
+          COUNTY_COUNT=$(php -r '$m=json_decode(file_get_contents("data/metadata.json"),true); echo $m["countyCount"];')
+          cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          # Census $YEAR data refresh
+
+          Updates the bundled state and county data to the official $YEAR U.S. Census Gazetteer vintage.
+
+          - $STATE_COUNT state-level records
+          - $COUNTY_COUNT counties and county equivalents
+          - Source and generated-file SHA-256 checksums recorded in dataset metadata
+          - Full test, style, and static-analysis suite passed before release
+          EOF
+
+      - name: Publish GitHub release
+        if: steps.plan.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$VERSION" --verify-tag --title "$VERSION - $YEAR Census data" --notes-file "$RUNNER_TEMP/release-notes.md"

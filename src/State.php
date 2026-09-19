@@ -4,220 +4,277 @@ declare(strict_types=1);
 
 namespace LyonStahl\Fips;
 
-use LyonStahl\Fips\Exception\StateException;
+use JsonSerializable;
+use LogicException;
+use LyonStahl\Fips\Exception\AmbiguousMatchException;
+use LyonStahl\Fips\Exception\InvalidIdentifierException;
+use LyonStahl\Fips\Exception\NotFoundException;
+use LyonStahl\Fips\Internal\Normalizer;
 
-class State
+/**
+ * An immutable state or state-equivalent record from the Census Gazetteer.
+ *
+ * @property-read string $name
+ * @property-read string $fips
+ * @property-read string $usps
+ * @property-read string $abbreviation Alias of $usps
+ */
+final class State implements JsonSerializable
 {
-    /**
-     * @var string Source file for the states
-     */
-    private static $source = __DIR__.'/../data/states.php';
-
-    /** @var array<int,array<string,string>>|null */
-    private static $data;
-
-    /** @var array<string,array<string,array<string,string>>>|null */
-    private static $indexes;
+    /** @var string */
+    private $name;
 
     /** @var string */
-    public $name;
+    private $fips;
 
-    /** @var string Two-letter abbreviation (ANSI) */
-    public $abbreviation;
+    /** @var string */
+    private $usps;
 
-    /** @var string Two-digit FIPS code (ANSI) */
-    public $fips;
+    /** @var array<string,self>|null */
+    private static $byFips;
 
-    /** @var string ISO 3166-2 code */
-    public $iso;
+    /** @var array<string,self>|null */
+    private static $byUsps;
 
-    /** @var string U.S. Postal Service code */
-    public $usps;
+    /** @var array<string,array<string,self>>|null */
+    private static $byName;
 
-    /** @var string U.S. Coast Guard code */
-    public $uscg;
-
-    public function __construct(string $name, string $abbreviation, string $fips, string $iso, string $usps, string $uscg)
+    private function __construct(string $name, string $fips, string $usps)
     {
         $this->name = $name;
-        $this->abbreviation = $abbreviation;
         $this->fips = $fips;
-        $this->iso = $iso;
         $this->usps = $usps;
-        $this->uscg = $uscg;
     }
 
-    /**
-     * Read all counties from the packaged JSON file.
-     *
-     * @return array<string,string[]>
-     */
-    public static function read(): array
-    {
-        if (self::$data === null) {
-            self::$data = include self::$source;
-        }
-
-        return self::$data;
-    }
-
-    /**
-     * Get all states.
-     *
-     * @return static[]
-     */
+    /** @return self[] */
     public static function all(): array
     {
-        return array_map(function ($state) {
-            return self::fromArray($state);
-        }, self::read());
+        self::initialize();
+
+        return array_values(self::$byFips ?? []);
     }
 
-    /** @var string */
-    public function getCounties(): array
-    {
-        $data = County::read();
-
-        if (!isset($data[$this->fips])) {
-            return [];
-        }
-
-        return array_map(function ($county) {
-            return new County($county['name'], $county['abbreviation'], $county['fips'], $this);
-        }, $data[$this->fips]);
-    }
-
-    /**
-     * Get a state by any identifier. Function will attempt to guess the type of identifier.
-     *
-     * @throws StateException
-     */
-    public static function fromAny(string $value): self
-    {
-        try {
-            if (self::isFips($value)) {
-                return self::fromFips($value);
-            }
-
-            if (self::isAbbr($value)) {
-                return self::fromAbbr($value);
-            }
-
-            return self::fromName($value);
-        } catch (StateException $e) {
-            throw StateException::unableToGuess($e);
-        }
-    }
-
-    /**
-     * Get a state by FIPS code.
-     *
-     * @throws StateException
-     */
     public static function fromFips(string $fips): self
     {
-        if (!self::isFips($fips)) {
-            throw StateException::invalidFipsCode($fips);
+        $fips = Normalizer::digits($fips, 2, 'State FIPS code');
+        self::initialize();
+
+        if (!isset(self::$byFips[$fips])) {
+            throw new NotFoundException(sprintf('No state found with FIPS code: %s', $fips));
         }
 
-        $state = self::indexes()['fips'][$fips] ?? null;
-        if ($state !== null) {
-            return self::fromArray($state);
-        }
-
-        throw StateException::invalidFipsCode($fips);
+        return self::$byFips[$fips];
     }
 
-    /**
-     * Get a state by abbreviation.
-     *
-     * @throws StateException
-     */
+    public static function tryFromFips(string $fips): ?self
+    {
+        return self::tryLookup(function () use ($fips): self {
+            return self::fromFips($fips);
+        });
+    }
+
+    public static function fromUsps(string $usps): self
+    {
+        $usps = Normalizer::letters($usps, 2, 'State USPS abbreviation');
+        self::initialize();
+
+        if (!isset(self::$byUsps[$usps])) {
+            throw new NotFoundException(sprintf('No state found with USPS abbreviation: %s', $usps));
+        }
+
+        return self::$byUsps[$usps];
+    }
+
+    public static function tryFromUsps(string $usps): ?self
+    {
+        return self::tryLookup(function () use ($usps): self {
+            return self::fromUsps($usps);
+        });
+    }
+
     public static function fromAbbr(string $abbreviation): self
     {
-        if (!self::isAbbr($abbreviation)) {
-            throw StateException::invalidAbbreviation($abbreviation);
-        }
-
-        $abbreviation = strtoupper($abbreviation);
-
-        $state = self::indexes()['abbreviation'][$abbreviation] ?? null;
-        if ($state !== null) {
-            return self::fromArray($state);
-        }
-
-        throw StateException::invalidAbbreviation($abbreviation);
+        return self::fromUsps($abbreviation);
     }
 
-    /**
-     * Get a state by name.
-     *
-     * @throws StateException
-     */
+    public static function tryFromAbbr(string $abbreviation): ?self
+    {
+        return self::tryFromUsps($abbreviation);
+    }
+
     public static function fromName(string $name): self
     {
-        $name = strtolower(trim($name));
+        $key = Normalizer::name($name);
+        self::initialize();
+        $matches = isset(self::$byName[$key]) ? array_values(self::$byName[$key]) : [];
 
-        $state = self::indexes()['name'][$name] ?? null;
-        if ($state !== null) {
-            return self::fromArray($state);
+        return self::one($matches, sprintf('state name %s', $name));
+    }
+
+    public static function tryFromName(string $name): ?self
+    {
+        return self::tryLookup(function () use ($name): self {
+            return self::fromName($name);
+        });
+    }
+
+    public static function fromAny(string $value): self
+    {
+        $value = trim($value);
+        if ($value === '') {
+            throw new InvalidIdentifierException('A state identifier must not be empty.');
         }
 
-        throw StateException::invalidName($name);
-    }
+        self::initialize();
+        $matches = [];
 
-    /**
-     * Create a state from an array. (for internal use).
-     *
-     * @throws StateException
-     */
-    private static function fromArray(array $state): self
-    {
-        return new self(
-            $state['name'],
-            $state['abbreviation'],
-            $state['fips'],
-            $state['iso'],
-            $state['usps'],
-            $state['uscg']
-        );
-    }
-
-    /**
-     * Check if a value is a valid FIPS state code.
-     */
-    private static function isFips(string $value): bool
-    {
-        return strlen($value) === 2 && is_numeric($value);
-    }
-
-    /**
-     * Check if a value is a valid state abbreviation.
-     */
-    private static function isAbbr(string $value): bool
-    {
-        return strlen($value) === 2 && ctype_alpha($value);
-    }
-
-    /** @return array<string,array<string,array<string,string>>> */
-    private static function indexes(): array
-    {
-        if (self::$indexes !== null) {
-            return self::$indexes;
+        if (preg_match('/^\d{2}$/D', $value) && isset(self::$byFips[$value])) {
+            $matches[$value] = self::$byFips[$value];
         }
 
-        self::$indexes = ['fips' => [], 'name' => [], 'abbreviation' => []];
-        foreach (self::read() as $state) {
-            self::$indexes['fips'][$state['fips']] = $state;
-            self::$indexes['name'][strtolower($state['name'])] = $state;
-            self::$indexes['abbreviation'][$state['abbreviation']] = $state;
+        $usps = strtoupper($value);
+        if (strlen($usps) === 2 && ctype_alpha($usps) && isset(self::$byUsps[$usps])) {
+            $matches[self::$byUsps[$usps]->fips] = self::$byUsps[$usps];
         }
 
-        return self::$indexes;
+        $name = Normalizer::name($value);
+        foreach (self::$byName[$name] ?? [] as $fips => $state) {
+            $matches[$fips] = $state;
+        }
+
+        return self::one(array_values($matches), sprintf('state identifier %s', $value));
+    }
+
+    public static function tryFromAny(string $value): ?self
+    {
+        return self::tryLookup(function () use ($value): self {
+            return self::fromAny($value);
+        });
+    }
+
+    /** @return County[] */
+    public function counties(): array
+    {
+        return County::forState($this);
+    }
+
+    public function countyFromName(string $name): County
+    {
+        return County::fromName($name, $this);
+    }
+
+    /** @return County[] */
+    public function findCounties(string $name): array
+    {
+        return County::findByName($name, $this);
+    }
+
+    public function countyFromFips(string $countyFips): County
+    {
+        $countyFips = Normalizer::digits($countyFips, 3, 'County FIPS code');
+
+        return County::fromFips($this->fips . $countyFips);
+    }
+
+    /** @return array<string,string> */
+    public function toArray(): array
+    {
+        return [
+            'name' => $this->name,
+            'fips' => $this->fips,
+            'usps' => $this->usps,
+            'abbreviation' => $this->usps,
+        ];
+    }
+
+    /** @return array<string,string> */
+    public function jsonSerialize(): array
+    {
+        return $this->toArray();
+    }
+
+    /** @return mixed */
+    public function __get(string $property)
+    {
+        switch ($property) {
+            case 'name':
+                return $this->name;
+            case 'fips':
+                return $this->fips;
+            case 'usps':
+            case 'abbreviation':
+                return $this->usps;
+            default:
+                throw new LogicException(sprintf('Undefined read-only property %s::$%s.', self::class, $property));
+        }
+    }
+
+    public function __isset(string $property): bool
+    {
+        return in_array($property, ['name', 'fips', 'usps', 'abbreviation'], true);
+    }
+
+    /** @param mixed $value */
+    public function __set(string $property, $value): void
+    {
+        throw new LogicException(sprintf('Cannot write read-only property %s::$%s.', self::class, $property));
+    }
+
+    public function __unset(string $property): void
+    {
+        throw new LogicException(sprintf('Cannot unset read-only property %s::$%s.', self::class, $property));
     }
 
     public function __toString(): string
     {
         return $this->name;
+    }
+
+    private static function initialize(): void
+    {
+        if (self::$byFips !== null) {
+            return;
+        }
+
+        $byFips = [];
+        $byUsps = [];
+        $byName = [];
+
+        foreach (Dataset::records('states') as $record) {
+            $state = new self($record['name'], $record['fips'], $record['usps']);
+
+            $byFips[$state->fips] = $state;
+            $byUsps[$state->usps] = $state;
+            $name = Normalizer::name($state->name);
+            $byName[$name][$state->fips] = $state;
+        }
+
+        ksort($byFips, SORT_STRING);
+        self::$byFips = $byFips;
+        self::$byUsps = $byUsps;
+        self::$byName = $byName;
+    }
+
+    /** @param self[] $matches */
+    private static function one(array $matches, string $description): self
+    {
+        if ($matches === []) {
+            throw new NotFoundException(sprintf('No match found for %s.', $description));
+        }
+
+        if (count($matches) > 1) {
+            throw new AmbiguousMatchException(sprintf('Multiple states match %s.', $description), $matches);
+        }
+
+        return $matches[0];
+    }
+
+    private static function tryLookup(callable $lookup): ?self
+    {
+        try {
+            return $lookup();
+        } catch (InvalidIdentifierException | NotFoundException $exception) {
+            return null;
+        }
     }
 }

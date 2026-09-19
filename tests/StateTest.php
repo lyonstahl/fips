@@ -4,151 +4,124 @@ declare(strict_types=1);
 
 namespace Tests;
 
-use LyonStahl\Fips\Exception\StateException;
+use LogicException;
+use LyonStahl\Fips\County;
+use LyonStahl\Fips\Dataset;
+use LyonStahl\Fips\Exception\InvalidIdentifierException;
+use LyonStahl\Fips\Exception\NotFoundException;
 use LyonStahl\Fips\State;
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 
-class StateTest extends TestCase
+final class StateTest extends TestCase
 {
-    private static $expected = [
-        'name' => 'California',
-        'abbreviation' => 'CA',
-        'fips' => '06',
-        'iso' => 'US-CA',
-        'usps' => 'CA',
-        'uscg' => 'CF',
-    ];
-
-    public function testConstructor()
+    public function testLookupByEveryIdentifier(): void
     {
-        $expected = [
-            'name' => 'Test State',
-            'abbreviation' => 'TS',
-            'fips' => '01',
-            'iso' => 'US-TS',
-            'usps' => 'T2',
-            'uscg' => 'T3',
-        ];
+        $byFips = State::fromFips('06');
+        $byUsps = State::fromUsps('ca');
+        $byAbbreviation = State::fromAbbr('CA');
+        $byName = State::fromName('  CALIFORNIA ');
 
-        $state = new State(
-            $expected['name'],
-            $expected['abbreviation'],
-            $expected['fips'],
-            $expected['iso'],
-            $expected['usps'],
-            $expected['uscg']
-        );
-
-        static::assertStateValid($state, $expected);
+        foreach ([$byFips, $byUsps, $byAbbreviation, $byName] as $state) {
+            self::assertSame('California', $state->name);
+            self::assertSame('06', $state->fips);
+            self::assertSame('CA', $state->usps);
+            self::assertSame('CA', $state->abbreviation);
+        }
     }
 
-    public function testAll()
+    public function testFromAnyUsesEveryApplicableIdentifier(): void
+    {
+        self::assertSame('California', State::fromAny('06')->name);
+        self::assertSame('California', State::fromAny('ca')->name);
+        self::assertSame('California', State::fromAny('California')->name);
+    }
+
+    public function testAllIncludesPuertoRicoInFipsOrder(): void
     {
         $states = State::all();
 
-        static::assertIsArray($states);
-        static::assertNotEmpty($states);
-        static::assertContainsOnlyInstancesOf(State::class, $states);
+        self::assertCount(Dataset::stateCount(), $states);
+        self::assertSame('01', $states[0]->fips);
+        self::assertSame('72', $states[count($states) - 1]->fips);
+        self::assertSame('Puerto Rico', State::fromUsps('PR')->name);
+
+        foreach ($states as $state) {
+            self::assertSame($state, State::fromFips($state->fips));
+            self::assertSame($state, State::fromUsps($state->usps));
+            self::assertSame($state, State::fromName($state->name));
+        }
     }
 
-    public function testFindStateByAny()
+    public function testInvalidAndUnknownIdentifiersAreDistinct(): void
     {
-        $state1 = State::fromAny(static::$expected['fips']);
-        $state2 = State::fromAny(static::$expected['name']);
-        $state3 = State::fromAny(static::$expected['abbreviation']);
+        try {
+            State::fromFips('6');
+            self::fail('Malformed FIPS code was accepted.');
+        } catch (InvalidIdentifierException $exception) {
+            self::assertStringContainsString('exactly 2 digits', $exception->getMessage());
+        }
 
-        static::assertStateValid($state1);
-        static::assertStateValid($state2);
-        static::assertStateValid($state3);
-    }
-
-    public function testFindStateByInvalidAny()
-    {
-        static::expectException(StateException::class);
-        static::expectExceptionCode(4);
-
-        State::fromAny('Invalid');
-    }
-
-    public function testFindStateByName()
-    {
-        $state = State::fromName(static::$expected['name']);
-
-        static::assertStateValid($state);
-    }
-
-    public function testFindStateByInvalidName()
-    {
-        static::expectException(StateException::class);
-        static::expectExceptionCode(3);
-
-        State::fromName('Invalid');
-    }
-
-    public function testFindStateByFips()
-    {
-        $state = State::fromFips(static::$expected['fips']);
-
-        static::assertStateValid($state);
-    }
-
-    public function testFindStateByInvalidFips()
-    {
-        static::expectException(StateException::class);
-        static::expectExceptionCode(1);
-
+        $this->expectException(NotFoundException::class);
         State::fromFips('99');
     }
 
-    public function testFindStateByAbbr()
+    public function testNullableLookupsReturnNullForInvalidOrMissingValues(): void
     {
-        $state = State::fromAbbr(static::$expected['abbreviation']);
-
-        static::assertStateValid($state);
+        self::assertNull(State::tryFromFips('6'));
+        self::assertNull(State::tryFromFips('99'));
+        self::assertNull(State::tryFromName('Nowhere'));
+        self::assertNull(State::tryFromAny(''));
     }
 
-    public function testFindStateByInvalidAbbr()
+    public function testStateProvidesScopedCountyLookups(): void
     {
-        static::expectException(StateException::class);
-        static::expectExceptionCode(2);
+        $virginia = State::fromAbbr('VA');
 
-        State::fromAbbr('XX');
+        self::assertSame('Fairfax County', $virginia->countyFromFips('059')->officialName);
+        self::assertSame('Fairfax County', $virginia->countyFromName('Fairfax County')->officialName);
+        self::assertCount(2, $virginia->findCounties('Fairfax'));
+        self::assertContainsOnlyInstancesOf(County::class, $virginia->counties());
     }
 
-    public function testGetCounties()
+    public function testStateSerializesWithStableAliases(): void
     {
-        $state = State::fromName(static::$expected['name']);
+        $state = State::fromFips('06');
+        $expected = [
+            'name' => 'California',
+            'fips' => '06',
+            'usps' => 'CA',
+            'abbreviation' => 'CA',
+        ];
 
-        static::assertCount(58, $state->getCounties());
+        self::assertSame($expected, $state->toArray());
+        self::assertSame($expected, json_decode(json_encode($state), true));
     }
 
-    public function testFindStateAcrossIndexes()
+    public function testObjectsCannotBeConstructedOrMutatedByCallers(): void
     {
-        static::assertSame('West Virginia', State::fromFips('54')->name);
-        static::assertSame('54', State::fromName('West Virginia')->fips);
-        static::assertSame('54', State::fromAbbr('wv')->fips);
+        $constructor = (new ReflectionClass(State::class))->getConstructor();
+        self::assertNotNull($constructor);
+        self::assertTrue($constructor->isPrivate());
+
+        $state = State::fromFips('06');
+        $this->expectException(LogicException::class);
+        $state->name = 'Changed';
     }
 
-    public function testGetCountiesOutsideSingleDigitState()
+    public function testObjectsCannotBeUnset(): void
     {
-        $counties = State::fromFips('54')->getCounties();
-
-        static::assertContains('Hardy', array_column($counties, 'name'));
-        static::assertSame('54', $counties[0]->state->fips);
+        $state = State::fromFips('06');
+        $this->expectException(LogicException::class);
+        unset($state->name);
     }
 
-    /**
-     * Assert that the state is valid.
-     */
-    public static function assertStateValid(State $state, ?array $expected = null)
+    public function testUnknownPropertiesFailClearly(): void
     {
-        $expected = $expected ?? static::$expected;
+        $state = State::fromFips('06');
+        self::assertFalse(isset($state->iso));
 
-        static::assertEquals($expected['name'], $state->name);
-        static::assertEquals($expected['abbreviation'], $state->abbreviation);
-        static::assertEquals($expected['fips'], $state->fips);
-        static::assertEquals($expected['iso'], $state->iso);
-        static::assertEquals($expected['usps'], $state->usps);
-        static::assertEquals($expected['uscg'], $state->uscg);
+        $this->expectException(LogicException::class);
+        $state->iso;
     }
 }

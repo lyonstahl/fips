@@ -1,86 +1,110 @@
-# FIPS data for States and Counties of the United States
+# Census FIPS lookups for PHP
 
-## Installation
+`lyonstahl/fips` provides fast, offline lookups for U.S. state and county FIPS codes using Census Gazetteer data.
 
-Ensure you have [composer](http://getcomposer.org) installed, then run the following command:
+## Install
 
-    composer require lyonstahl/fips
+```shell
+composer require lyonstahl/fips
+```
 
-That will fetch the library and its dependencies inside your vendor folder.
+Version 2 requires PHP 7.3+ with `ctype`, `json`, and `mbstring`.
 
-## Requirements
+## Data versions
 
--   [PHP 7.3+](https://www.php.net)
--   [Composer 2.0+](https://getcomposer.org)
+| Package version | Year | Dataset |
+| --- | ---: | --- |
+| 2.0.0 | 2024 | Census Gazetteer |
+| 1.1.1 | 2023 | Legacy package data; not Census-backed |
 
-## Usage
-
-Start using either the `State` or `County` class to get the data you need.
+## States
 
 ```php
+use LyonStahl\Fips\State;
+
 $state = State::fromName('California');
-echo $state->fips; // 06
-echo $state->abbreviation; // CA
 
-$counties = $state->getCounties();
-echo $counties[0]->name; // Alameda
+$state->name;         // California
+$state->fips;         // 06
+$state->usps;         // CA
+$state->abbreviation; // CA
 ```
+
+Look up a state with `fromFips()`, `fromUsps()`, `fromAbbr()`, `fromName()`, or `fromAny()`. `State::all()` returns every state-level record in FIPS order.
+
+## Counties
 
 ```php
+use LyonStahl\Fips\County;
+
 $county = County::fromFips('06037');
-echo $county->name; // Los Angeles
-echo $county->state->name; // California
+
+$county->name;         // Los Angeles
+$county->officialName; // Los Angeles County
+$county->fips;         // 06037
+$county->stateFips;    // 06
+$county->countyFips;   // 037
+$county->state->name;  // California
 ```
 
-Both classes have four common static methods:
+County `fips` is always the complete five-digit identifier. `stateFips` and `countyFips` expose its two parts.
 
--   `fromAny((string $value)` - Get a State or County object from any identifier. Function will attempt to guess the type of identifier.
--   `fromName(string $name)` - Get the State or County object from its name.
--   `fromAbbr(string $abbreviation)` - Get the State object from its abbreviation.
--   `fromFips(string $fips)` - Get the County object from its FIPS code.
+County-equivalent types such as parishes, boroughs, municipios, independent cities, and planning regions are available through `$county->type` and the `County::TYPE_*` constants.
 
-Finally, both classes are connected, meaning you can get the State object from a County object and vice versa.
+## Names and ambiguity
 
--   `State::` `getCounties()` - This will fetch all the counties for the state.
--   `County::` `$state` - State object is available as a property.
+Repeated county names require a state or a multi-result lookup:
 
-## Running for development with Docker
+```php
+County::fromName('Los Angeles');
+County::fromName('Franklin County', 'VA');
+County::findByName('Franklin');
 
-We have included a Dockerfile to make it easy to run the tests and debug the code. You must have Docker installed. The following commands will build the image and run the container:
+$virginia = State::fromAbbr('VA');
+$virginia->countyFromName('Arlington');
+$virginia->countyFromFips('059');
+$virginia->counties();
+```
 
-1. `docker build -t lyonstahl/fips --build-arg PHP_VERSION=8 .`
-2. `docker run -it --rm -v ${PWD}:/var/www/app lyonstahl/fips sh`
+An unscoped singular lookup throws `AmbiguousMatchException` when several records match. Its `candidates()` method returns those records.
 
-## Debugging with XDebug in VSCode
+Each singular lookup also has a nullable `tryFrom...()` form. Invalid or missing values return `null`; ambiguous names still throw.
 
-Docker image is configured with XDebug. To debug the code with VSCode, follow these steps:
+## Objects and metadata
 
-1.  Install the [PHP Debug extension](https://marketplace.visualstudio.com/items?itemName=xdebug.php-debug) in VSCode
-2.  Add a new PHP Debug configuration in VSCode:
+State and county objects are immutable, implement `JsonSerializable`, and provide `toArray()`.
 
-        {
-            "name": "XDebug Docker",
-            "type": "php",
-            "request": "launch",
-            "port": 9003,
-            "pathMappings": {
-                "/var/www/app/": "${workspaceRoot}/"
-            }
-        }
+```php
+use LyonStahl\Fips\Dataset;
 
-3.  `docker run -it --rm -v ${PWD}:/var/www/app --add-host host.docker.internal:host-gateway lyonstahl/fips sh`
-4.  Start debugging in VSCode with the 'XDebug Docker' configuration.
+Dataset::vintage();
+Dataset::generatedAt();
+Dataset::sources();
+Dataset::sourceChecksums();
+Dataset::dataChecksums();
+Dataset::stateCount();
+Dataset::countyCount();
+```
 
-## Testing
+Lookups never access the network. The bundled scope follows the national Census State and County Gazetteer files, which currently cover the 50 states, the District of Columbia, and Puerto Rico.
 
-This library ships with PHPUnit for development. Composer file has been configured with some scripts, run the following command to run the tests:
+## Development
 
-    composer test
+```shell
+composer install
+composer check
+```
 
-## Updating county data
+Run `composer test`, `composer style`, `composer style:fix`, or `composer analyse` for individual checks.
 
-County data is generated from the annual [U.S. Census Gazetteer Files](https://www.census.gov/geographies/reference-files/time-series/geo/gazetteer-files.html). The development machine must have PHP's `zip` extension enabled.
+To refresh the data locally:
 
-    php tools/county-parser 2026
+```shell
+php tools/generate-data 2024
+```
 
-The year defaults to `2026` when omitted. Generation preserves the package's short county names and existing California county abbreviations.
+The generator validates both national Gazetteer archives before replacing the packaged files. It also records their URLs, checksums, vintage, and record counts.
+
+The **Refresh Census data and release** GitHub workflow checks monthly for the next Census vintage. Unavailable or unchanged archives produce a no-op. A real change is generated and tested before the workflow updates this table, commits, tags, and publishes a release. Maintainers can also run it manually with a year and a new `MAJOR.MINOR.PATCH` version.
+
+Data comes from the official [U.S. Census Gazetteer Files](https://www.census.gov/geographies/reference-files/time-series/geo/gazetteer-files.html).

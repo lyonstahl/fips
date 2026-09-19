@@ -1,0 +1,262 @@
+[
+    {
+        "name": "Alabama",
+        "fips": "01",
+        "usps": "AL"
+    },
+    {
+        "name": "Alaska",
+        "fips": "02",
+        "usps": "AK"
+    },
+    {
+        "name": "Arizona",
+        "fips": "04",
+        "usps": "AZ"
+    },
+    {
+        "name": "Arkansas",
+        "fips": "05",
+        "usps": "AR"
+    },
+    {
+        "name": "California",
+        "fips": "06",
+        "usps": "CA"
+    },
+    {
+        "name": "Colorado",
+        "fips": "08",
+        "usps": "CO"
+    },
+    {
+        "name": "Connecticut",
+        "fips": "09",
+        "usps": "CT"
+    },
+    {
+        "name": "Delaware",
+        "fips": "10",
+        "usps": "DE"
+    },
+    {
+        "name": "District of Columbia",
+        "fips": "11",
+        "usps": "DC"
+    },
+    {
+        "name": "Florida",
+        "fips": "12",
+        "usps": "FL"
+    },
+    {
+        "name": "Georgia",
+        "fips": "13",
+        "usps": "GA"
+    },
+    {
+        "name": "Hawaii",
+        "fips": "15",
+        "usps": "HI"
+    },
+    {
+        "name": "Idaho",
+        "fips": "16",
+        "usps": "ID"
+    },
+    {
+        "name": "Illinois",
+        "fips": "17",
+        "usps": "IL"
+    },
+    {
+        "name": "Indiana",
+        "fips": "18",
+        "usps": "IN"
+    },
+    {
+        "name": "Iowa",
+        "fips": "19",
+        "usps": "IA"
+    },
+    {
+        "name": "Kansas",
+        "fips": "20",
+        "usps": "KS"
+    },
+    {
+        "name": "Kentucky",
+        "fips": "21",
+        "usps": "KY"
+    },
+    {
+        "name": "Louisiana",
+        "fips": "22",
+        "usps": "LA"
+    },
+    {
+        "name": "Maine",
+        "fips": "23",
+        "usps": "ME"
+    },
+    {
+        "name": "Maryland",
+        "fips": "24",
+        "usps": "MD"
+    },
+    {
+        "name": "Massachusetts",
+        "fips": "25",
+        "usps": "MA"
+    },
+    {
+        "name": "Michigan",
+        "fips": "26",
+        "usps": "MI"
+    },
+    {
+        "name": "Minnesota",
+        "fips": "27",
+        "usps": "MN"
+    },
+    {
+        "name": "Mississippi",
+        "fips": "28",
+        "usps": "MS"
+    },
+    {
+        "name": "Missouri",
+        "fips": "29",
+        "usps": "MO"
+    },
+    {
+        "name": "Montana",
+        "fips": "30",
+        "usps": "MT"
+    },
+    {
+        "name": "Nebraska",
+        "fips": "31",
+        "usps": "NE"
+    },
+    {
+        "name": "Nevada",
+        "fips": "32",
+        "usps": "NV"
+    },
+    {
+        "name": "New Hampshire",
+        "fips": "33",
+        "usps": "NH"
+    },
+    {
+        "name": "New Jersey",
+        "fips": "34",
+        "usps": "NJ"
+    },
+    {
+        "name": "New Mexico",
+        "fips": "35",
+        "usps": "NM"
+    },
+    {
+        "name": "New York",
+        "fips": "36",
+        "usps": "NY"
+    },
+    {
+        "name": "North Carolina",
+        "fips": "37",
+        "usps": "NC"
+    },
+    {
+        "name": "North Dakota",
+        "fips": "38",
+        "usps": "ND"
+    },
+    {
+        "name": "Ohio",
+        "fips": "39",
+        "usps": "OH"
+    },
+    {
+        "name": "Oklahoma",
+        "fips": "40",
+        "usps": "OK"
+    },
+    {
+        "name": "Oregon",
+        "fips": "41",
+        "usps": "OR"
+    },
+    {
+        "name": "Pennsylvania",
+        "fips": "42",
+        "usps": "PA"
+    },
+    {
+        "name": "Rhode Island",
+        "fips": "44",
+        "usps": "RI"
+    },
+    {
+        "name": "South Carolina",
+        "fips": "45",
+        "usps": "SC"
+    },
+    {
+        "name": "South Dakota",
+        "fips": "46",
+        "usps": "SD"
+    },
+    {
+        "name": "Tennessee",
+        "fips": "47",
+        "usps": "TN"
+    },
+    {
+        "name": "Texas",
+        "fips": "48",
+        "usps": "TX"
+    },
+    {
+        "name": "Utah",
+        "fips": "49",
+        "usps": "UT"
+    },
+    {
+        "name": "Vermont",
+        "fips": "50",
+        "usps": "VT"
+    },
+    {
+        "name": "Virginia",
+        "fips": "51",
+        "usps": "VA"
+    },
+    {
+        "name": "Washington",
+        "fips": "53",
+        "usps": "WA"
+    },
+    {
+        "name": "West Virginia",
+        "fips": "54",
+        "usps": "WV"
+    },
+    {
+        "name": "Wisconsin",
+        "fips": "55",
+        "usps": "WI"
+    },
+    {
+        "name": "Wyoming",
+        "fips": "56",
+        "usps": "WY"
+    },
+    {
+        "name": "Puerto Rico",
+        "fips": "72",
+        "usps": "PR"
+    }
+]

@@ -4,216 +4,369 @@ declare(strict_types=1);
 
 namespace LyonStahl\Fips;
 
-use LyonStahl\Fips\Exception\CountyException;
+use JsonSerializable;
+use LogicException;
+use LyonStahl\Fips\Exception\AmbiguousMatchException;
+use LyonStahl\Fips\Exception\InvalidIdentifierException;
+use LyonStahl\Fips\Exception\NotFoundException;
+use LyonStahl\Fips\Internal\Normalizer;
 
-class County
+/**
+ * An immutable county or county-equivalent record from the Census Gazetteer.
+ *
+ * @property-read string $name Short name without the legal/statistical suffix
+ * @property-read string $officialName
+ * @property-read string $type
+ * @property-read string $ansiCode
+ * @property-read string $fips
+ * @property-read string $stateFips
+ * @property-read string $countyFips
+ * @property-read State  $state
+ */
+final class County implements JsonSerializable
 {
-    /**
-     * @var string Source file for the counties
-     *
-     * Keep data in JSON for performance resons
-     */
-    private static $source = __DIR__.'/../data/counties.json';
-
-    /** @var array<string,array<int,array<string,string|null>>>|null */
-    private static $data;
-
-    /** @var array<string,array<string,string>>|null */
-    private static $indexes;
+    public const TYPE_BOROUGH = 'borough';
+    public const TYPE_CENSUS_AREA = 'census_area';
+    public const TYPE_CITY_AND_BOROUGH = 'city_and_borough';
+    public const TYPE_CONSOLIDATED_MUNICIPALITY = 'consolidated_municipality';
+    public const TYPE_COUNTY = 'county';
+    public const TYPE_DISTRICT = 'district';
+    public const TYPE_INDEPENDENT_CITY = 'independent_city';
+    public const TYPE_MUNICIPALITY = 'municipality';
+    public const TYPE_MUNICIPIO = 'municipio';
+    public const TYPE_PARISH = 'parish';
+    public const TYPE_PLANNING_REGION = 'planning_region';
 
     /** @var string */
-    public $name;
+    private $name;
 
-    /** @var string|null Two-letter abbreviation (if applicable) */
-    public $abbreviation;
+    /** @var string */
+    private $officialName;
 
-    /** @var string Two(Three)-digit FIPS code (ANSI) */
-    public $fips;
+    /** @var string */
+    private $type;
 
-    /** @var State State object */
-    public $state;
+    /** @var string */
+    private $ansiCode;
 
-    public function __construct(string $name, ?string $abbreviation, string $fips, $state = null)
-    {
+    /** @var string */
+    private $fips;
+
+    /** @var string */
+    private $stateFips;
+
+    /** @var string */
+    private $countyFips;
+
+    /** @var State */
+    private $state;
+
+    /** @var array<string,self>|null */
+    private static $byFips;
+
+    /** @var array<string,array<string,self>>|null */
+    private static $byName;
+
+    /** @var array<string,array<string,self>>|null */
+    private static $byState;
+
+    private function __construct(
+        string $name,
+        string $officialName,
+        string $type,
+        string $ansiCode,
+        string $fips,
+        string $stateFips,
+        string $countyFips,
+        State $state
+    ) {
         $this->name = $name;
-        $this->abbreviation = $abbreviation;
+        $this->officialName = $officialName;
+        $this->type = $type;
+        $this->ansiCode = $ansiCode;
         $this->fips = $fips;
-
-        if ($state instanceof State) {
-            $this->state = $state;
-        } else {
-            $this->state = State::fromFips((string) $state);
-        }
+        $this->stateFips = $stateFips;
+        $this->countyFips = $countyFips;
+        $this->state = $state;
     }
 
-    /**
-     * Read all counties from the packaged JSON file.
-     *
-     * @return array<string,string[]>
-     */
-    public static function read(): array
-    {
-        if (self::$data === null) {
-            self::$data = json_decode(file_get_contents(self::$source), true);
-        }
-
-        return self::$data;
-    }
-
-    /**
-     * Get all counties.
-     *
-     * @return County[]
-     */
+    /** @return self[] */
     public static function all(): array
     {
-        $data = self::read();
+        self::initialize();
 
-        $result = [];
-        foreach ($data as $state => $counties) {
-            foreach ($counties as $county) {
-                $result[] = new static($county['name'], $county['abbreviation'], $county['fips'], $state);
-            }
-        }
-
-        return $result;
+        return array_values(self::$byFips ?? []);
     }
 
-    /**
-     * Get a county by any identifier. Function will attempt to guess the type of identifier.
-     *
-     * @throws CountyException
-     */
-    public static function fromAny(string $value): self
-    {
-        try {
-            if (self::isFips($value)) {
-                return self::fromFips($value);
-            }
-
-            if (self::isAbbr($value)) {
-                return self::fromAbbr($value);
-            }
-
-            return self::fromName($value);
-        } catch (CountyException $e) {
-            throw CountyException::unableToGuess($e);
-        }
-    }
-
-    /**
-     * Get a county by FIPS code. (5-digit code, including state code).
-     *
-     * @throws CountyException
-     */
     public static function fromFips(string $fips): self
     {
-        if (!self::isFips($fips)) {
-            throw CountyException::invalidFipsCode($fips);
+        $fips = Normalizer::digits($fips, 5, 'County FIPS code');
+        self::initialize();
+
+        if (!isset(self::$byFips[$fips])) {
+            throw new NotFoundException(sprintf('No county found with FIPS code: %s', $fips));
         }
 
-        // Get the state fips from the first 2 characters
-        $stateFips = substr($fips, 0, 2);
+        return self::$byFips[$fips];
+    }
 
-        // Get the county fips from the last 3 characters
-        $countyFips = substr($fips, 2, 3);
+    public static function tryFromFips(string $fips): ?self
+    {
+        return self::tryLookup(function () use ($fips): self {
+            return self::fromFips($fips);
+        });
+    }
 
-        foreach (self::read()[$stateFips] ?? [] as $county) {
-            if ($county['fips'] === $countyFips) {
-                return new static($county['name'], $county['abbreviation'], $county['fips'], $stateFips);
+    /** @param State|string|null $state */
+    public static function fromName(string $name, $state = null): self
+    {
+        $scope = $state === null ? null : self::resolveState($state);
+        $matches = self::findNameMatches(Normalizer::name($name), $scope);
+        $scopeDescription = $scope === null ? '' : ' in ' . $scope->name;
+
+        return self::one($matches, sprintf('county name %s%s', $name, $scopeDescription));
+    }
+
+    /** @param State|string|null $state */
+    public static function tryFromName(string $name, $state = null): ?self
+    {
+        return self::tryLookup(function () use ($name, $state): self {
+            return self::fromName($name, $state);
+        });
+    }
+
+    /**
+     * @param State|string|null $state
+     *
+     * @return self[]
+     */
+    public static function findByName(string $name, $state = null): array
+    {
+        $key = Normalizer::name($name);
+        $scope = $state === null ? null : self::resolveState($state);
+
+        return self::findNameMatches($key, $scope);
+    }
+
+    /** @param State|string|null $state */
+    public static function fromAny(string $value, $state = null): self
+    {
+        $value = trim($value);
+        if ($value === '') {
+            throw new InvalidIdentifierException('A county identifier must not be empty.');
+        }
+
+        $scope = $state === null ? null : self::resolveState($state);
+        self::initialize();
+        $matches = [];
+
+        if (preg_match('/^\d{5}$/D', $value) && isset(self::$byFips[$value])) {
+            $county = self::$byFips[$value];
+            if ($scope === null || $county->stateFips === $scope->fips) {
+                $matches[$county->fips] = $county;
             }
         }
 
-        throw CountyException::invalidFipsCode($fips);
-    }
-
-    /**
-     * Get a county by abbreviation.
-     *
-     * @throws CountyException
-     */
-    public static function fromAbbr(string $abbreviation): self
-    {
-        if (!self::isAbbr($abbreviation)) {
-            throw CountyException::invalidAbbreviation($abbreviation);
-        }
-
-        $abbreviation = strtoupper($abbreviation);
-
-        $fips = self::indexes()['abbreviation'][$abbreviation] ?? null;
-        if ($fips !== null) {
-            return self::fromFips($fips);
-        }
-
-        throw CountyException::invalidAbbreviation($abbreviation);
-    }
-
-    /**
-     * Get a county by name.
-     *
-     * @throws CountyException
-     */
-    public static function fromName(string $name): self
-    {
-        $name = strtolower(trim($name));
-
-        $fips = self::indexes()['name'][$name] ?? null;
-        if ($fips !== null) {
-            return self::fromFips($fips);
-        }
-
-        throw CountyException::invalidName($name);
-    }
-
-    /**
-     * Check if a value is a valid FIPS county code.
-     */
-    private static function isFips(string $value): bool
-    {
-        return strlen($value) === 5 && is_numeric($value);
-    }
-
-    /**
-     * Check if a value is a valid county abbreviation.
-     */
-    private static function isAbbr(string $value): bool
-    {
-        return (strlen($value) === 2 || strlen($value) === 3) && ctype_alpha($value);
-    }
-
-    /**
-     * Build lookup indexes while preserving the first match for duplicate names.
-     *
-     * @return array<string,array<string,string>>
-     */
-    private static function indexes(): array
-    {
-        if (self::$indexes !== null) {
-            return self::$indexes;
-        }
-
-        self::$indexes = ['name' => [], 'abbreviation' => []];
-        foreach (self::read() as $state => $counties) {
-            $stateFips = str_pad((string) $state, 2, '0', STR_PAD_LEFT);
-            foreach ($counties as $county) {
-                $fips = $stateFips.$county['fips'];
-                $name = strtolower($county['name']);
-
-                if (!isset(self::$indexes['name'][$name])) {
-                    self::$indexes['name'][$name] = $fips;
-                }
-
-                if ($county['abbreviation'] !== null) {
-                    self::$indexes['abbreviation'][$county['abbreviation']] = $fips;
-                }
+        if ($scope !== null && preg_match('/^\d{3}$/D', $value)) {
+            $fips = $scope->fips . $value;
+            if (isset(self::$byFips[$fips])) {
+                $matches[$fips] = self::$byFips[$fips];
             }
         }
 
-        return self::$indexes;
+        $name = Normalizer::name($value);
+        foreach (self::$byName[$name] ?? [] as $fips => $county) {
+            if ($scope === null || $county->stateFips === $scope->fips) {
+                $matches[$fips] = $county;
+            }
+        }
+
+        $scopeDescription = $scope === null ? '' : ' in ' . $scope->name;
+
+        return self::one(array_values($matches), sprintf('county identifier %s%s', $value, $scopeDescription));
+    }
+
+    /** @param State|string|null $state */
+    public static function tryFromAny(string $value, $state = null): ?self
+    {
+        return self::tryLookup(function () use ($value, $state): self {
+            return self::fromAny($value, $state);
+        });
+    }
+
+    /**
+     * @internal Used by State::counties().
+     *
+     * @return self[]
+     */
+    public static function forState(State $state): array
+    {
+        self::initialize();
+
+        return array_values(self::$byState[$state->fips] ?? []);
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray(): array
+    {
+        return [
+            'name' => $this->name,
+            'officialName' => $this->officialName,
+            'type' => $this->type,
+            'ansiCode' => $this->ansiCode,
+            'fips' => $this->fips,
+            'stateFips' => $this->stateFips,
+            'countyFips' => $this->countyFips,
+            'state' => $this->state->toArray(),
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    public function jsonSerialize(): array
+    {
+        return $this->toArray();
+    }
+
+    /** @return mixed */
+    public function __get(string $property)
+    {
+        switch ($property) {
+            case 'name':
+                return $this->name;
+            case 'officialName':
+                return $this->officialName;
+            case 'type':
+                return $this->type;
+            case 'ansiCode':
+                return $this->ansiCode;
+            case 'fips':
+                return $this->fips;
+            case 'stateFips':
+                return $this->stateFips;
+            case 'countyFips':
+                return $this->countyFips;
+            case 'state':
+                return $this->state;
+            default:
+                throw new LogicException(sprintf('Undefined read-only property %s::$%s.', self::class, $property));
+        }
+    }
+
+    public function __isset(string $property): bool
+    {
+        return in_array($property, [
+            'name', 'officialName', 'type', 'ansiCode', 'fips', 'stateFips', 'countyFips', 'state',
+        ], true);
+    }
+
+    /** @param mixed $value */
+    public function __set(string $property, $value): void
+    {
+        throw new LogicException(sprintf('Cannot write read-only property %s::$%s.', self::class, $property));
+    }
+
+    public function __unset(string $property): void
+    {
+        throw new LogicException(sprintf('Cannot unset read-only property %s::$%s.', self::class, $property));
     }
 
     public function __toString(): string
     {
         return $this->name;
+    }
+
+    private static function initialize(): void
+    {
+        if (self::$byFips !== null) {
+            return;
+        }
+
+        $byFips = [];
+        $byName = [];
+        $byState = [];
+
+        foreach (Dataset::records('counties') as $record) {
+            $state = State::fromFips($record['stateFips']);
+            $county = new self(
+                $record['name'],
+                $record['officialName'],
+                $record['type'],
+                $record['ansiCode'],
+                $record['fips'],
+                $record['stateFips'],
+                $record['countyFips'],
+                $state
+            );
+
+            $byFips[$county->fips] = $county;
+            $byState[$county->stateFips][$county->fips] = $county;
+
+            foreach ([$county->name, $county->officialName] as $name) {
+                $key = Normalizer::name($name);
+                $byName[$key][$county->fips] = $county;
+            }
+        }
+
+        ksort($byFips, SORT_STRING);
+        foreach ($byState as &$counties) {
+            ksort($counties, SORT_STRING);
+        }
+        unset($counties);
+
+        self::$byFips = $byFips;
+        self::$byName = $byName;
+        self::$byState = $byState;
+    }
+
+    /** @param mixed $state */
+    private static function resolveState($state): State
+    {
+        if ($state instanceof State) {
+            return $state;
+        }
+
+        if (is_string($state)) {
+            return State::fromAny($state);
+        }
+
+        throw new InvalidIdentifierException('State scope must be a State object or string identifier.');
+    }
+
+    /** @return self[] */
+    private static function findNameMatches(string $normalizedName, ?State $state): array
+    {
+        self::initialize();
+        $matches = array_values(self::$byName[$normalizedName] ?? []);
+
+        if ($state === null) {
+            return $matches;
+        }
+
+        return array_values(array_filter($matches, function (self $county) use ($state): bool {
+            return $county->stateFips === $state->fips;
+        }));
+    }
+
+    /** @param self[] $matches */
+    private static function one(array $matches, string $description): self
+    {
+        if ($matches === []) {
+            throw new NotFoundException(sprintf('No match found for %s.', $description));
+        }
+
+        if (count($matches) > 1) {
+            throw new AmbiguousMatchException(sprintf('Multiple counties match %s.', $description), $matches);
+        }
+
+        return $matches[0];
+    }
+
+    private static function tryLookup(callable $lookup): ?self
+    {
+        try {
+            return $lookup();
+        } catch (InvalidIdentifierException | NotFoundException $exception) {
+            return null;
+        }
     }
 }

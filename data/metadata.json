@@ -1,0 +1,18 @@
+{
+    "vintage": "2024",
+    "generatedAt": "2026-09-19T16:49:41+00:00",
+    "sources": {
+        "states": "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2024_Gazetteer/2024_Gaz_state_national.zip",
+        "counties": "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2024_Gazetteer/2024_Gaz_counties_national.zip"
+    },
+    "sourceChecksums": {
+        "states": "608678c4b1aee5bd7577d7ee8754763af5b9c662d44cef23f30fead56d9284ae",
+        "counties": "3c337402b5c6e8d5aa26b4278ccf4edc8989f2683765b3ffbf22296cdb2df3a0"
+    },
+    "dataChecksums": {
+        "states": "470c92542a85911d9dc0372ba2b7901951654a869162ed884864ea06691f131c",
+        "counties": "df2762e8f5c4c9b93ad70abd1162447ebf9b091506af596149b298f7e5fd8aae"
+    },
+    "stateCount": 52,
+    "countyCount": 3222
+}
